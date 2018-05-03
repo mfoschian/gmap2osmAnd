@@ -1,0 +1,11 @@
+{
+  "name": "gmaps2osmand",
+  "version": "0.0.1",
+  "description": "convert Google Maps exported kml to OsmAnd favourites.gpx",
+  "license": "MIT",
+  "dependencies": {
+    "promise": "~7.0.1",
+    "xml2js": "^0.4.19"
+  },
+  "readmeFilename": "Readme.md"
+}
