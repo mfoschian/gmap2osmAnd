@@ -29,7 +29,20 @@ function parseFile( file ) {
 	});
 }
 
-
+function mapPlacemarks( placemarks, folderName ) {
+	var items = placemarks.map( function( p ) {
+		var wpt = {};
+		wpt.name = p['name'][0];
+		var coords = p['Point'][0]['coordinates'][0];
+		coords = coords.replace(/[\n ]/g,"").split(",");
+		wpt.lat = coords[1];
+		wpt.lon = coords[0];
+		if( folderName )
+			wpt.category = folderName;
+		return wpt;
+	});
+	return items;
+}
 
 var args = process.argv;
 //console.log ( util.inspect( args ) );
@@ -46,21 +59,30 @@ var category = args[3];
 parseFile( kmlfile )
 .then( function(result) {
 	
+	//console.log( 'File Parsed' );
+	
 	var kml = result['kml'];
 	var doc = kml['Document'][0];
 	var placemarks = doc['Placemark'];
 
-	var items = placemarks.map( function( p ) {
-		var wpt = {};
-		wpt.name = p['name'][0];
-		var coords = p['Point'][0]['coordinates'][0];
-		coords = coords.replace(/[\n ]/g,"").split(",");
-		wpt.lat = coords[1];
-		wpt.lon = coords[0];
-		if( category )
-			wpt.category = category;
-		return wpt;
-	});
+	var items = [];
+	
+	//console.log( JSON.stringify( placemarks, null, 4 ) );
+	if( placemarks ) {
+		items = mapPlacemarks( placemarks, category );
+	}
+	else {
+		var folders = doc['Folder'];
+
+		for( var i=0; i<folders.length; i++  ) {
+			var f = folders[i];
+			var fname = f['name'][0];
+			if( category )
+				fname = category + ' - ' + fname;
+
+			items = items.concat( mapPlacemarks( f['Placemark'], fname ) );
+		}
+	}
 
 	//console.log( JSON.stringify( items, null, 4 ) );
 
