@@ -9,14 +9,14 @@
             "request": "launch",
             "name": "Convert 1",
             "program": "${workspaceFolder}/convert.js",
-            "args": ["Honest Guide to Prague.kml", "Janek"]
+            "args": ["files/Honest Guide to Prague.kml", "Janek"]
         },
         {
             "type": "node",
             "request": "launch",
             "name": "Convert 2",
             "program": "${workspaceFolder}/convert2.js",
-            "args": ["Honest Guide to Prague.kml", "Janek"]
+            "args": ["files/Honest Guide to Prague.kml", "Janek"]
         }
     ]
 }

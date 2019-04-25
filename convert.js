@@ -34,63 +34,131 @@ function parseFile( file ) {
 function cdata( s ) {
 	return '<![CDATA[' + s + ']]>';
 }
+/*
+function tag( v ) {
+	return '<' + tag + '>' + value + '</'+ tag +'>';
+}
+*/
 
-function toGpx( wpts ) {
+function toGpx( items ) {
 
 	// Format data into gpx xml string
-	var xml = [
+	let xml = [
 		"<?xml version='1.0' encoding='UTF-8' standalone='yes' ?>",
 		'<gpx version="1.1" creator="OsmAnd" xmlns="http://www.topografix.com/GPX/1/1" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/1/1/gpx.xsd">'
 	];
-	var items = wpts.map( function( wpt ) {
-		var x = '<wpt lat="'+wpt.lat+'" lon="'+wpt.lon+'">';
-		if( wpt.name ) {
-			x += '<name>'+cdata(wpt.name)+'</name>';
-			if( add_desc )
-				x += '<desc>'+cdata(wpt.desc || wpt.name)+'</desc>';
-			else
-				x += '<desc>'+cdata(wpt.name)+'</desc>';
-		}
-		if( wpt.category )
-			x += '<type>'+cdata(wpt.category)+'</type>';
-		if( wpt.comment )
-			x += '<cmt>'+cdata(wpt.comment)+'</cmt>';
+	let elements = items.map( function( item ) {
 
-		x += '</wpt>';
+		let extra = '';
+		if( item.name ) {
+			extra += '<name>'+cdata(item.name)+'</name>';
+			if( add_desc )
+				extra += '<desc>'+cdata(item.desc || item.name)+'</desc>';
+			else
+				extra += '<desc>'+cdata(item.name)+'</desc>';
+		}
+
+		if( item.category )
+			extra += '<type>'+cdata(item.category)+'</type>';
+
+		if( item.comment )
+			x += '<cmt>'+cdata(item.comment)+'</cmt>';
+
+		if( item.color )
+			extra += '<extensions><color>#' + item.color + '</color></extensions>';
+
+		let x = null;
+		if( item.lat && item.lon ) {
+			// Waypoint
+			x = '<wpt lat="'+item.lat+'" lon="'+item.lon+'">'
+				+ extra
+				+ '</wpt>'
+				;
+		}
+		else if( item.line ) {
+			x = '<trk>' + extra + '<trkseg>';
+			for( let i=0; i<item.line.length; i++ ) {
+				let p = item.line[i];
+				if( p.lat && p.lon )
+					x += '<trkpt lat="'+p.lat+'" lon="'+p.lon+'"></trkpt>';
+			}
+			x += '</trkseg></trk>';
+		}
+		else
+			x = '';
+
 		return x;
 	});
-	
-	xml = xml.concat( items ).concat( [ '</gpx>' ] );
-	var gpx = xml.join("\n");
+
+	xml = xml.concat( elements ).concat( [ '</gpx>' ] );
+	let gpx = xml.join("\n");
 
 	return gpx;
 }
 
-function mapPlacemarks( placemarks, folderName ) {
+function parseColor( c ) {
+	// aaBBGGRR -> aaRRGGBB
+	let aa = c.substring(0,2);
+	let BB = c.substring(2,4);
+	let GG = c.substring(4,6);
+	let RR = c.substring(6,8);
+	let aaRRGGBB = aa + RR + GG + BB;
+	return aaRRGGBB;
+}
+
+function mapPlacemarks( placemarks, folderName, styles ) {
 	try {
-		var items = placemarks.map( function( p ) {
-			var wpt = {};
+		let items = placemarks.map( function( p ) {
+			let item = {};
 
 			// Name
-			wpt.name = p['name'][0];
+			item.name = p['name'][0];
 
 			var desc = p['description'];
 			if( desc && desc[0] ) {
-				wpt.desc = desc[0];
+				item.desc = desc[0];
 			}
 
 			var point = p['Point'];
 			if( point && point[0] ) {
+				// map to wpt
 				point = point[0]['coordinates'][0];
 				point = point.replace(/[\n ]/g,"").split(",");
-				wpt.lat = point[1];
-				wpt.lon = point[0];
+				item.lat = point[1];
+				item.lon = point[0];
+				item.alt = point[2];
+			}
+
+			let line = p['LineString'];
+			if( line && line[0] ) {
+				// map to trkseg / trkpt
+				line = line[0]['coordinates'][0];
+				let points = line.replace(/ /g,"").split("\n");
+				item.line = points.map( function(s) {
+					let point = s.replace(/[\n ]/g,"").split(",");
+					return {
+						lat: point[1],
+						lon: point[0],
+						alt: point[2]
+					};
+				});
+			}
+
+			let style = p['styleUrl'];
+			if( style && style[0] ) {
+				let style_id = style[0];
+				let x = styles[style_id];
+				if( x ) {
+					item.color = x.color;
+					item.width = x.width;
+					item.icon = x.icon;
+				}
 			}
 
 			if( folderName )
-				wpt.category = folderName;
+				item.category = folderName;
 
-			return wpt;
+			return item;
 		});
 		return items;
 	}
@@ -117,13 +185,89 @@ parseFile( kmlfile )
 	
 	if( debug ) console.log( '*** File Parsed' );
 	// console.log( JSON.stringify( result, null, 4 ) );
-	
-	var kml = result['kml'];
-	var doc = kml['Document'][0];
-	var placemarks = doc['Placemark'];
 
-	var items = [];
-	
+	let kml = result['kml'];
+	let doc = kml['Document'][0];
+
+	// Map Styles and StyleMap
+	let styles = {};
+	let ss = doc['Style'];
+	for( let i=0; i<ss.length; i++ ) {
+		let style = {};
+		let s = ss[i];
+
+		// get id
+		let attr = s['$'];
+		if( !attr || !attr.id )
+			continue;
+
+		let style_id = attr.id;
+
+		let icon = s['IconStyle'];
+		if( icon && icon[0] ) {
+			let color = icon[0].color;
+			if( color && color[0] ) {
+				style.color = parseColor(color[0]);
+			}
+
+			icon = icon[0]['href'];
+			if( icon && icon[0] ) {
+				style.icon = icon[0];
+			}
+		}
+
+		let line = s['LineStyle'];
+		if( line && line[0] ) {
+			if( !style.color ) {
+				let color = line[0].color;
+				if( color && color[0] ) {
+					style.color = parseColor(color[0]);
+				}
+			}
+		}
+
+		if( style )
+			styles['#'+style_id] = style;
+	}
+
+	let sm = doc['StyleMap'];
+	for( let i=0; i<sm.length; i++ ) {
+		let m = sm[i];
+
+		// get id
+		let attr = m['$'];
+		if( !attr || !attr.id )
+			continue;
+
+		let id = attr.id;
+
+		/*
+			<Pair>
+				<key>normal</key>
+				<styleUrl>#icon-1501-0288D1-normal</styleUrl>
+			</Pair>
+		*/
+		// map only the "normal" style
+		let pairs = m['Pair'] || [];
+		for( let j=0; j<pairs.length; j++ ) {
+			let p = pairs[j];
+			let k = p['key']
+			if( k && k[0] == 'normal' ) {
+				let v = p['styleUrl'] || [];
+				let s = styles[v];
+				if( s ) {
+					styles['#' + id] = s;
+					break;
+				}
+			}
+		}
+	}
+
+
+	// Get Placemarks and tracks
+	let placemarks = doc['Placemark'];
+	let items = [];
+
 	// console.log( JSON.stringify( placemarks, null, 4 ) );
 	if( placemarks ) {
 		items = mapPlacemarks( placemarks, category );
@@ -139,7 +283,7 @@ parseFile( kmlfile )
 			if( category )
 				fname = category + ' - ' + fname;
 
-			var places = mapPlacemarks( f['Placemark'], fname );
+			var places = mapPlacemarks( f['Placemark'], fname, styles );
 			if( debug ) console.log( '*** -- %s markers added', places.length );
 			items = items.concat( places );
 		}
