@@ -3,7 +3,7 @@ var xml2js = require('xml2js');
 var util = require('util');
 var fs = require('fs');
 
-var debug = false;
+var debug = true;
 var add_desc = true;
 
 
@@ -31,10 +31,6 @@ function parseFile( file ) {
 	});
 }
 
-function cdata( s ) {
-	return '<![CDATA[' + s + ']]>';
-}
-
 function toGpx( wpts ) {
 
 	// Format data into gpx xml string
@@ -45,16 +41,16 @@ function toGpx( wpts ) {
 	var items = wpts.map( function( wpt ) {
 		var x = '<wpt lat="'+wpt.lat+'" lon="'+wpt.lon+'">';
 		if( wpt.name ) {
-			x += '<name>'+cdata(wpt.name)+'</name>';
+			x += '<name>'+wpt.name+'</name>';
 			if( add_desc )
-				x += '<desc>'+cdata(wpt.desc || wpt.name)+'</desc>';
+				x += '<desc>'+(wpt.desc || wpt.name)+'</desc>';
 			else
-				x += '<desc>'+cdata(wpt.name)+'</desc>';
+				x += '<desc>'+(wpt.name)+'</desc>';
 		}
 		if( wpt.category )
-			x += '<type>'+cdata(wpt.category)+'</type>';
+			x += '<type>'+wpt.category+'</type>';
 		if( wpt.comment )
-			x += '<cmt>'+cdata(wpt.comment)+'</cmt>';
+			x += '<cmt>'+wpt.comment+'</cmt>';
 
 		x += '</wpt>';
 		return x;
@@ -64,6 +60,17 @@ function toGpx( wpts ) {
 	var gpx = xml.join("\n");
 
 	return gpx;
+}
+
+function saveGpx( filename, wpts ) {
+
+	let gpx = toGpx( wpts );
+
+	fs.writeFile(filename, gpx, function(err) {
+		if(err) {
+			console.log('*** Error saving %s: %s', filename, err);
+		}
+	}); 	
 }
 
 function mapPlacemarks( placemarks, folderName ) {
@@ -109,6 +116,8 @@ if( !kmlfile ) {
 	process.exit();
 }
 
+var basefile = kmlfile.replace('.kml','')
+
 var category = args[3];
 
 if( debug ) console.log( '*** Converting file %s', kmlfile );
@@ -122,67 +131,40 @@ parseFile( kmlfile )
 	var doc = kml['Document'][0];
 	var placemarks = doc['Placemark'];
 
-	var items = [];
 	
 	// console.log( JSON.stringify( placemarks, null, 4 ) );
 	if( placemarks ) {
+		// Only the default folder
+		var items = [];
+		var outfile = basefile + '.gpx';
 		items = mapPlacemarks( placemarks, category );
+
+		saveGpx( outfile, items );
+		return items;
 	}
-	else {
-		if( debug ) console.log( '*** No Placemark, search for Folders' );
-		var folders = doc['Folder'];
 
-		for( var i=0; i<folders.length; i++  ) {
-			var f = folders[i];
-			var fname = f['name'][0];
-			if( debug ) console.log( '*** Found folder %s', fname );
-			if( category )
-				fname = category + ' - ' + fname;
+	if( debug ) console.log( '*** No Placemark, search for Folders' );
+	var folders = doc['Folder'];
 
-			var places = mapPlacemarks( f['Placemark'], fname );
-			if( debug ) console.log( '*** -- %s markers added', places.length );
-			items = items.concat( places );
-		}
+	for( var i=0; i<folders.length; i++  ) {
+		var f = folders[i];
+		var fname = f['name'][0];
+		var flabel = fname;
+		if( debug ) console.log( '*** Found folder %s', fname );
+		if( category )
+			flabel = category + ' - ' + fname;
+
+		var places = mapPlacemarks( f['Placemark'], flabel );
+		if( debug ) console.log( '*** -- %s markers added', places.length );
+
+		var outfile = basefile + '.' + fname + '.gpx';
+		saveGpx( outfile, places );
 	}
 
 	// if( debug ) console.log( JSON.stringify( items, null, 4 ) );
 
-	return items;
+	return [];
 })
-.then( toGpx )
-.then( function( gpx ) {
-	console.log( gpx );
-})
-/*
-.then( function( wpts ) {
-
-	var xml = [
-		"<?xml version='1.0' encoding='UTF-8' standalone='yes' ?>",
-		'<gpx version="1.1" creator="OsmAnd" xmlns="http://www.topografix.com/GPX/1/1" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/1/1/gpx.xsd">'
-	];
-	var items = wpts.map( function( wpt ) {
-		var x = '<wpt lat="'+wpt.lat+'" lon="'+wpt.lon+'">';
-		if( wpt.name ) {
-			x += '<name>'+wpt.name+'</name>';
-			if( add_desc )
-				x += '<desc>'+(wpt.desc || wpt.name)+'</desc>';
-			else
-				x += '<desc>'+(wpt.name)+'</desc>';
-		}
-		if( wpt.category )
-			x += '<type>'+wpt.category+'</type>';
-		if( wpt.comment )
-			x += '<cmt>'+wpt.comment+'</cmt>';
-
-		x += '</wpt>';
-		return x;
-
-	});
-	
-	xml = xml.concat( items ).concat( [ '</gpx>' ] );
-	console.log( xml.join("\n") );
-}) 
-*/
 .then( undefined, function( err ) {
 	console.error( err );
 });
